@@ -1,0 +1,254 @@
+{
+  "info": {
+    "name": "Distributed Log Aggregator API",
+    "description": "Postman collection untuk testing Distributed Pub-Sub Log Aggregator API dengan fitur idempotent processing dan deduplication",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "1"
+  },
+  "item": [
+    {
+      "name": "Health Check",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/health",
+          "host": ["{{base_url}}"],
+          "path": ["health"]
+        },
+        "description": "Health check endpoint untuk memverifikasi status service, database, dan Redis connection"
+      },
+      "response": []
+    },
+    {
+      "name": "Get Statistics",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/stats",
+          "host": ["{{base_url}}"],
+          "path": ["stats"]
+        },
+        "description": "Mendapatkan statistik sistem:\n- received_total: Total events yang diterima (termasuk duplikat)\n- unique_processed: Events unik yang diproses\n- duplicate_dropped: Events duplikat yang di-ignore\n- active_topics: Jumlah topic yang berbeda\n- uptime_seconds: Lama service berjalan"
+      },
+      "response": []
+    },
+    {
+      "name": "Publish Single Event",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"topic\": \"user.login\",\n  \"event_id\": \"evt_{{$timestamp}}_001\",\n  \"timestamp\": \"{{$isoTimestamp}}\",\n  \"source\": \"postman-test\",\n  \"payload\": {\n    \"user_id\": 12345,\n    \"username\": \"test_user\",\n    \"ip\": \"192.168.1.100\",\n    \"success\": true,\n    \"message\": \"Login successful\"\n  }\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/publish",
+          "host": ["{{base_url}}"],
+          "path": ["publish"]
+        },
+        "description": "Publish single event ke Redis queue untuk diproses oleh consumer workers.\n\nEvent dengan topic+event_id yang sama akan di-deduplikasi.\n\nGunakan dynamic variable {{$timestamp}} untuk generate unique event_id."
+      },
+      "response": []
+    },
+    {
+      "name": "Publish Event - User Logout",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"topic\": \"user.logout\",\n  \"event_id\": \"evt_{{$timestamp}}_002\",\n  \"timestamp\": \"{{$isoTimestamp}}\",\n  \"source\": \"postman-test\",\n  \"payload\": {\n    \"user_id\": 12345,\n    \"username\": \"test_user\",\n    \"session_duration\": 3600\n  }\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/publish",
+          "host": ["{{base_url}}"],
+          "path": ["publish"]
+        },
+        "description": "Testing dengan topic berbeda: user.logout"
+      },
+      "response": []
+    },
+    {
+      "name": "Publish Event - Order Created",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"topic\": \"order.created\",\n  \"event_id\": \"evt_{{$timestamp}}_003\",\n  \"timestamp\": \"{{$isoTimestamp}}\",\n  \"source\": \"order-service\",\n  \"payload\": {\n    \"order_id\": \"ORD-2023-12345\",\n    \"customer_id\": 67890,\n    \"total_amount\": 150000,\n    \"items\": [\n      {\n        \"product_id\": \"PROD-001\",\n        \"quantity\": 2,\n        \"price\": 50000\n      },\n      {\n        \"product_id\": \"PROD-002\",\n        \"quantity\": 1,\n        \"price\": 50000\n      }\n    ]\n  }\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/publish",
+          "host": ["{{base_url}}"],
+          "path": ["publish"]
+        },
+        "description": "Testing event order.created dengan payload yang lebih kompleks"
+      },
+      "response": []
+    },
+    {
+      "name": "Publish Duplicate Event (Idempotency Test)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"topic\": \"user.login\",\n  \"event_id\": \"evt_duplicate_test_001\",\n  \"timestamp\": \"2023-12-18T10:00:00Z\",\n  \"source\": \"postman-test\",\n  \"payload\": {\n    \"user_id\": 99999,\n    \"username\": \"duplicate_test\",\n    \"ip\": \"10.0.0.1\",\n    \"success\": true,\n    \"message\": \"This is a duplicate test event\"\n  }\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/publish",
+          "host": ["{{base_url}}"],
+          "path": ["publish"]
+        },
+        "description": "Testing idempotency dengan mengirim event yang sama beberapa kali.\n\n**Cara test:**\n1. Kirim request ini pertama kali\n2. Cek stats - unique_processed bertambah 1\n3. Kirim request yang sama lagi\n4. Cek stats - duplicate_dropped bertambah 1, unique_processed tetap\n\nEvent dengan topic='user.login' dan event_id='evt_duplicate_test_001' yang sama hanya akan diproses sekali."
+      },
+      "response": []
+    },
+    {
+      "name": "Publish Event Batch",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"events\": [\n    {\n      \"topic\": \"payment.success\",\n      \"event_id\": \"evt_batch_{{$timestamp}}_001\",\n      \"timestamp\": \"{{$isoTimestamp}}\",\n      \"source\": \"payment-gateway\",\n      \"payload\": {\n        \"transaction_id\": \"TRX-001\",\n        \"amount\": 250000,\n        \"method\": \"credit_card\"\n      }\n    },\n    {\n      \"topic\": \"payment.success\",\n      \"event_id\": \"evt_batch_{{$timestamp}}_002\",\n      \"timestamp\": \"{{$isoTimestamp}}\",\n      \"source\": \"payment-gateway\",\n      \"payload\": {\n        \"transaction_id\": \"TRX-002\",\n        \"amount\": 100000,\n        \"method\": \"bank_transfer\"\n      }\n    },\n    {\n      \"topic\": \"notification.sent\",\n      \"event_id\": \"evt_batch_{{$timestamp}}_003\",\n      \"timestamp\": \"{{$isoTimestamp}}\",\n      \"source\": \"notification-service\",\n      \"payload\": {\n        \"notification_id\": \"NOTIF-001\",\n        \"type\": \"email\",\n        \"recipient\": \"user@example.com\"\n      }\n    },\n    {\n      \"topic\": \"notification.sent\",\n      \"event_id\": \"evt_batch_{{$timestamp}}_004\",\n      \"timestamp\": \"{{$isoTimestamp}}\",\n      \"source\": \"notification-service\",\n      \"payload\": {\n        \"notification_id\": \"NOTIF-002\",\n        \"type\": \"sms\",\n        \"recipient\": \"+6281234567890\"\n      }\n    },\n    {\n      \"topic\": \"inventory.updated\",\n      \"event_id\": \"evt_batch_{{$timestamp}}_005\",\n      \"timestamp\": \"{{$isoTimestamp}}\",\n      \"source\": \"inventory-service\",\n      \"payload\": {\n        \"product_id\": \"PROD-001\",\n        \"stock_before\": 100,\n        \"stock_after\": 98,\n        \"change\": -2\n      }\n    }\n  ]\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/publish/batch",
+          "host": ["{{base_url}}"],
+          "path": ["publish", "batch"]
+        },
+        "description": "Publish multiple events dalam satu request.\n\nBatch processing mendukung partial success - jika ada event yang error, event lainnya tetap diproses.\n\nResponse akan memberikan detail hasil untuk setiap event."
+      },
+      "response": []
+    },
+    {
+      "name": "Query All Events",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/events?limit=100",
+          "host": ["{{base_url}}"],
+          "path": ["events"],
+          "query": [
+            {
+              "key": "limit",
+              "value": "100",
+              "description": "Maksimal jumlah hasil (1-1000, default: 100)"
+            }
+          ]
+        },
+        "description": "Query semua events yang telah diproses (deduplicated).\n\nParameter:\n- limit: Maksimal jumlah hasil (1-1000)"
+      },
+      "response": []
+    },
+    {
+      "name": "Query Events by Topic - user.login",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/events?topic=user.login&limit=50",
+          "host": ["{{base_url}}"],
+          "path": ["events"],
+          "query": [
+            {
+              "key": "topic",
+              "value": "user.login",
+              "description": "Filter berdasarkan topic"
+            },
+            {
+              "key": "limit",
+              "value": "50",
+              "description": "Maksimal jumlah hasil"
+            }
+          ]
+        },
+        "description": "Query events berdasarkan topic tertentu.\n\nContoh topic lain yang bisa ditest:\n- user.logout\n- order.created\n- payment.success\n- notification.sent\n- inventory.updated"
+      },
+      "response": []
+    },
+    {
+      "name": "Query Events by Topic - order.created",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/events?topic=order.created&limit=20",
+          "host": ["{{base_url}}"],
+          "path": ["events"],
+          "query": [
+            {
+              "key": "topic",
+              "value": "order.created"
+            },
+            {
+              "key": "limit",
+              "value": "20"
+            }
+          ]
+        },
+        "description": "Query events dengan topic order.created"
+      },
+      "response": []
+    },
+    {
+      "name": "Concurrency Test - Send Multiple Same Events",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"topic\": \"concurrency.test\",\n  \"event_id\": \"evt_concurrent_001\",\n  \"timestamp\": \"2023-12-18T12:00:00Z\",\n  \"source\": \"postman-concurrency-test\",\n  \"payload\": {\n    \"test_id\": \"concurrent_001\",\n    \"message\": \"Testing concurrent deduplication\",\n    \"note\": \"Send this multiple times simultaneously to test race conditions\"\n  }\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/publish",
+          "host": ["{{base_url}}"],
+          "path": ["publish"]
+        },
+        "description": "**Concurrency Test:**\n\nUntuk test concurrent processing dan race condition handling:\n\n1. Gunakan Postman Collection Runner\n2. Set iterations ke 10-20\n3. Set delay ke 0ms\n4. Run collection\n5. Cek stats - seharusnya hanya 1 unique_processed, sisanya duplicate_dropped\n\nAtau gunakan manual concurrent testing:\n1. Buka request ini di multiple tabs\n2. Click Send di semua tabs secara bersamaan\n3. Verify bahwa hanya 1 event yang diproses"
+      },
+      "response": []
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8080",
+      "type": "string"
+    }
+  ]
+}

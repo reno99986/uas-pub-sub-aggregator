@@ -1,0 +1,92 @@
+services:
+  # PostgreSQL Storage
+  storage:
+    image: postgres:16-alpine
+    container_name: uas-storage
+    environment:
+      POSTGRES_DB: logaggregator
+      POSTGRES_USER: agguser
+      POSTGRES_PASSWORD: aggpass
+    ports:
+      - "5432:5432"  # Expose for testing from host
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ./aggregator/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agguser -d logaggregator"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - uas_network
+
+  # Redis Broker
+  broker:
+    image: redis:7-alpine
+    container_name: uas-broker
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"  # Expose for testing from host
+    volumes:
+      - broker_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - uas_network
+
+  # Aggregator Service
+  aggregator:
+    build:
+      context: ./aggregator
+      dockerfile: Dockerfile
+    container_name: uas-aggregator
+    depends_on:
+      storage:
+        condition: service_healthy
+      broker:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://agguser:aggpass@storage:5432/logaggregator
+      REDIS_URL: redis://broker:6379
+      NUM_WORKERS: 3
+      LOG_LEVEL: INFO
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - uas_network
+
+  # Publisher Service
+  publisher:
+    build:
+      context: ./publisher
+      dockerfile: Dockerfile
+    container_name: uas-publisher
+    depends_on:
+      aggregator:
+        condition: service_healthy
+    environment:
+      TARGET_URL: http://aggregator:8080/publish
+      REDIS_URL: redis://broker:6379
+      TOTAL_EVENTS: 20000
+      DUPLICATE_RATE: "0.35"
+      SEND_RATE: 100
+    networks:
+      - uas_network
+
+volumes:
+  pg_data:
+    name: uas_pg_data
+  broker_data:
+    name: uas_broker_data
+
+networks:
+  uas_network:
+    driver: bridge
